@@ -63,12 +63,11 @@ def q(values, state: np.ndarray):
     return values[x]
 
 
-def train():
+def train(number_of_episodes):
     # td(0) updates with Upper Confidence Bound
     dr = 0.99  # discount rate
     lr = 0.01  # learning rate
 
-    number_of_episodes = 1000000
     q_table = {}
     xox = XOX()
 
@@ -87,7 +86,6 @@ def train():
             #print('----\n', q_values, '\n', frequencies)
             u_values = np.sqrt(np.log(i + 2) / (np.array(frequencies, dtype=np.float32) + 1e-4)) * np.sqrt(2)
             #print(u_values, '\n----')
-            rand = xox.np_random.rand()
             free_places = np.where(xox.state == 0)[0]
             q_values[xox.state != 0] = -1000
             # print()
@@ -131,9 +129,7 @@ def train():
         pickle.dump(q_table, f)
 
 
-def test():
-    number_of_episodes = 10000
-
+def test(number_of_episodes):
     wins = 0
     loses = 0
     ties = 0
@@ -142,12 +138,12 @@ def test():
     with open('q_table.pckl', 'rb') as f:
         q_table = pickle.load(f)
 
-    print(q(q_table, xox.state))
     for _ in range(number_of_episodes):
         done = False
         while not done:
             cur_state = xox.state.copy()
             q_values, frequencies = q(q_table, cur_state)
+            q_values[cur_state != 0] = -100
             act = np.argmax(q_values)
             s, r, done, _ = xox.step(act)
 
@@ -166,8 +162,9 @@ def test():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('phase', choices=['train', 'test'])
+    parser.add_argument('--episodes', type=int, default=10000)
     args = parser.parse_args()
     if args.phase == 'train':
-        train()
+        train(args.episodes)
     else:
-        test()
+        test(args.episodes)
