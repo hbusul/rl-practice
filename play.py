@@ -25,25 +25,35 @@ import argparse
 import pickle
 import sys
 
+from collections import defaultdict
+
 import numpy as np
 
 from utils import get_q, update_q, last_action_update_q, multiply_actions
 from xox_env import XOX
 
 
+def pick_action_with_ucb(q_table, state, time):
+    q_values, frequencies = get_q(q_table, state)
+    u_values = np.sqrt(
+        np.log(time + 2) / (np.array(frequencies, dtype=np.float32) + 1e-4)
+    ) * np.sqrt(2)
+    q_values[state != 0] = -1000
+    act = np.argmax(q_values + u_values)
+    return act
+
+
 def train(number_of_episodes, use_model, skip_result, skip_percentage):
     '''Train agent with given parameters'''
     # td(0) updates with Upper Confidence Bound
-    dr = 0.99  # discount rate
-    lr = 0.01  # learning rate
+    discount = 0.99
+    learning_rate = 0.01
 
     q_table = {}
     xox = XOX()
 
     sarsa_buf = []
-    wins = 0
-    loses = 0
-    ties = 0
+    stats = defaultdict(lambda : 0)
 
     ten_percent = number_of_episodes // 10
 
@@ -53,14 +63,9 @@ def train(number_of_episodes, use_model, skip_result, skip_percentage):
         done = False
         while not done:
             cur_state = xox.state.copy()
-            q_values, frequencies = get_q(q_table, cur_state)
-            u_values = np.sqrt(
-                np.log(i + 2) / (np.array(frequencies, dtype=np.float32) + 1e-4)
-            ) * np.sqrt(2)
-            q_values[xox.state != 0] = -1000
-            act = np.argmax(q_values + u_values)
-            _, r, done, _ = xox.step(act)
-            sarsa_buf.append((cur_state, act, r))
+            act = pick_action_with_ucb(q_table, xox.state, i)
+            _, reward, done, _ = xox.step(act)
+            sarsa_buf.append((cur_state, act, reward))
             last_two = sarsa_buf[-2:]
             if len(last_two) == 2:
                 sar1 = sarsa_buf[-2]
@@ -68,27 +73,22 @@ def train(number_of_episodes, use_model, skip_result, skip_percentage):
 
                 tuples = multiply_actions(*sar1, *sar2) if use_model else [(*sar1, *sar2)]
                 for sarsa in tuples:
-                    update_q(q_table, sarsa[0], sarsa[1], sarsa[2], sarsa[3], sarsa[4], lr, dr)
+                    update_q(q_table, *sarsa[:5], learning_rate, discount)
 
             if done:
                 sar1 = sarsa_buf[-1]
                 tuples = multiply_actions(*sar1, *sar1) if use_model else [(*sar1, *sar1)]
                 for sarsa in tuples:
-                    last_action_update_q(q_table, sarsa[0], sarsa[1], sarsa[2], lr)
+                    last_action_update_q(q_table, sarsa[0], sarsa[1], sarsa[2], learning_rate)
 
-                if r == 1:
-                    wins += 1
-                elif r == -1:
-                    loses += 1
-                else:
-                    ties += 1
+                stats[reward] += 1
         done = False
         xox.reset()
 
     if not skip_result:
-        print(f'wins: {wins}, loses: {loses}, ties: {ties}')
-    with open('q_table.pckl', 'wb') as f:
-        pickle.dump(q_table, f)
+        print(f'wins: {stats[1]}, loses: {stats[-1]}, ties: {stats[0.5]}')
+    with open('q_table.pckl', 'wb') as q_table_file:
+        pickle.dump(q_table, q_table_file)
 
 
 def test(number_of_episodes):
@@ -98,8 +98,8 @@ def test(number_of_episodes):
     ties = 0
 
     xox = XOX()
-    with open('q_table.pckl', 'rb') as f:
-        q_table = pickle.load(f)
+    with open('q_table.pckl', 'rb') as q_table_file:
+        q_table = pickle.load(q_table_file)
 
     for _ in range(number_of_episodes):
         done = False
