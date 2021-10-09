@@ -38,11 +38,12 @@ import numpy as np
 class XOX(gym.Env):
     '''Some description here'''
 
-    def __init__(self):
+    def __init__(self, environment_policy=None):
         self.state: np.ndarray = np.array([0] * 9)
         self.action_space = spaces.Discrete(9)
         self.observation_space = spaces.MultiDiscrete([3] * 9)
         self.seed()
+        self.environment_policy = environment_policy
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -69,9 +70,15 @@ class XOX(gym.Env):
         free_places = np.where(self.state == 0)[0]
         if len(free_places) == 0:
             return self.state, 0.5, True, {}
+        if self.environment_policy is None:
+            opponent_move = free_places[self.np_random.randint(len(free_places))]
+            self.state[opponent_move] = 2
+        else:
+            env_action = self.environment_policy(self.state)
+            assert self.action_space.contains(env_action), err_msg
+            assert self.state[env_action] == 0, 'square was already full'
+            self.state[env_action] = 2
 
-        opponent_move = free_places[self.np_random.randint(len(free_places))]
-        self.state[opponent_move] = 2
         state = self.state.reshape(3, 3)
         mask = (state == 2)
         out = mask.all(0).any() or mask.all(1).any() or np.diag(mask).all()
